@@ -1,9 +1,11 @@
 package com.coffin.companion
 
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
 import android.os.Bundle
@@ -15,9 +17,17 @@ class FlashActivity : AppCompatActivity() {
     private lateinit var binding: ActivityFlashBinding
     private var pulling = false
     private var statusHeld = false
+    private var askedUsb = false
+    private var usbDenied = false
+    private var probing = false
+    private var psramLine: String? = null
+    private var probeFailed = false
 
     private val usbReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_USB_PERMISSION) {
+                usbDenied = !intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+            }
             refresh()
         }
     }
@@ -34,6 +44,7 @@ class FlashActivity : AppCompatActivity() {
         val filter = IntentFilter().apply {
             addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
             addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+            addAction(ACTION_USB_PERMISSION)
         }
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(usbReceiver, filter, RECEIVER_NOT_EXPORTED)
@@ -112,22 +123,103 @@ class FlashActivity : AppCompatActivity() {
         if (pulling) {
             return
         }
-        val connected = bootDeviceConnected()
-        binding.update.visibility = if (connected) View.VISIBLE else View.GONE
-        binding.update.isEnabled = connected
-        if (!connected) {
+        val device = bootDevice()
+        if (device == null) {
+            askedUsb = false
+            usbDenied = false
             statusHeld = false
+            probing = false
+            psramLine = null
+            probeFailed = false
+            binding.update.visibility = View.GONE
             binding.status.text = getString(R.string.flash_wait)
             return
         }
-        if (!statusHeld) {
-            binding.status.text = getString(R.string.flash_ready)
+        val usb = getSystemService(UsbManager::class.java)
+        if (usb == null || !usb.hasPermission(device)) {
+            binding.update.visibility = View.GONE
+            if (!statusHeld) {
+                binding.status.text = getString(
+                    if (usbDenied) R.string.flash_usb_denied else R.string.flash_usb_permission,
+                )
+            }
+            if (usb != null && !usbDenied && !askedUsb) {
+                askUsb(usb, device)
+            }
+            return
+        }
+        if (psramLine == null && !probeFailed && !probing) {
+            readPsram(device)
+        }
+        val known = psramLine
+        binding.update.visibility = if (known != null) View.VISIBLE else View.GONE
+        binding.update.isEnabled = known != null && !pulling
+        if (!statusHeld && !probing && known != null) {
+            binding.status.text = known
         }
     }
 
-    private fun bootDeviceConnected(): Boolean {
-        val usb = getSystemService(UsbManager::class.java) ?: return false
-        return usb.deviceList.values.any { device ->
+    private fun readPsram(device: UsbDevice) {
+        probing = true
+        binding.update.visibility = View.GONE
+        if (!statusHeld) {
+            binding.status.text = getString(R.string.flash_reading_psram)
+        }
+        val app = applicationContext
+        Thread {
+            val outcome = try {
+                val info = PsramProbe.read(app, device)
+                val psram = when {
+                    info.model != "ESP32-S3" -> ""
+                    info.psram == null -> "\n" + getString(R.string.flash_no_psram)
+                    else -> "\n" + getString(R.string.flash_psram, info.psram)
+                }
+                Result.success(info.model + psram)
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            runOnUiThread {
+                if (isDestroyed) {
+                    return@runOnUiThread
+                }
+                probing = false
+                if (bootDevice() == null) {
+                    refresh()
+                    return@runOnUiThread
+                }
+                outcome.fold(
+                    onSuccess = { line ->
+                        psramLine = line
+                        probeFailed = false
+                        if (!statusHeld) {
+                            binding.status.text = line
+                        }
+                    },
+                    onFailure = { error ->
+                        probeFailed = true
+                        statusHeld = true
+                        binding.status.text = getString(
+                            R.string.flash_psram_failed,
+                            error.message ?: error.javaClass.simpleName,
+                        )
+                    },
+                )
+                refresh()
+            }
+        }.start()
+    }
+
+    private fun askUsb(usb: UsbManager, device: UsbDevice) {
+        askedUsb = true
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            if (Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+        val intent = Intent(ACTION_USB_PERMISSION).setPackage(packageName)
+        usb.requestPermission(device, PendingIntent.getBroadcast(this, 0, intent, flags))
+    }
+
+    private fun bootDevice(): UsbDevice? {
+        val usb = getSystemService(UsbManager::class.java) ?: return null
+        return usb.deviceList.values.firstOrNull { device ->
             device.vendorId == ESPRESSIF_VID && device.productId == USB_JTAG_PID
         }
     }
@@ -135,5 +227,6 @@ class FlashActivity : AppCompatActivity() {
     private companion object {
         const val ESPRESSIF_VID = 0x303A
         const val USB_JTAG_PID = 0x1001
+        const val ACTION_USB_PERMISSION = "com.coffin.companion.USB_PERMISSION"
     }
 }

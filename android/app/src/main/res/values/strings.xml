@@ -18,6 +18,12 @@
     <string name="flash_title">Firmware</string>
     <string name="flash_wait">Plug the coffin into this phone. Hold BOOT and press RESET if it does not show up.</string>
     <string name="flash_ready">Coffin is connected.</string>
+    <string name="flash_usb_permission">Allow USB access to read this board.</string>
+    <string name="flash_usb_denied">USB access was denied.</string>
+    <string name="flash_reading_psram">Reading the chip…</string>
+    <string name="flash_psram">PSRAM %1$s</string>
+    <string name="flash_no_psram">No PSRAM</string>
+    <string name="flash_psram_failed">Could not read PSRAM. %1$s</string>
     <string name="update_firmware">Update firmware</string>
     <string name="flash_checking">Checking the latest release…</string>
     <string name="flash_downloading_pct">Downloading %1$d%%…</string>
