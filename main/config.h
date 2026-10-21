@@ -48,8 +48,11 @@
 #define MOTOR_SWAP_DIRECTION    0
 #define MOTOR_PWM_HZ            20000
 #define MOTOR_SPEED_PERCENT     100
+/* Defaults until `out` / `in` have been saved from the serial console. */
 #define MOTOR_OUT_MS            10000
 #define MOTOR_BACK_MS           11000
+#define MOTOR_MS_MIN            100
+#define MOTOR_MS_MAX            120000
 
 /* PCM5102 I2S. Connect the DAC SCK pin to PIN_I2S_MCLK. */
 #define PIN_I2S_MCLK            17
@@ -58,6 +61,11 @@
 #define PIN_I2S_DOUT            15 //din
 #define AUDIO_SAMPLE_RATE_HZ    44100
 #define AUDIO_BOOT_TONE         1  /* short beep at startup, set to 0 once the DAC is confirmed */
+/* /storage/creaks plays once while the lid opens. A clip still running fades out for the scream. */
+
+/* Onboard WS2812 used as a status lamp. Not part of the eye rings. */
+#define PIN_STATUS              48
+#define STATUS_BRIGHTNESS       32
 
 /* Both WS2812 rings on one data pin. Chain DOUT of the first into DIN of the second. */
 #define PIN_RING                18
@@ -73,3 +81,31 @@
 
 /* Set to 1 to run the scare once after warmup, without waiting for the PIR. */
 #define SCARE_ONCE_ON_BOOT      0
+
+/*
+ * Companion advertisement. This board only listens.
+ *
+ * Manufacturer data, after the AD type byte 0xFF:
+ *   0..1    company id, little-endian
+ *   2..5    magic
+ *   6       command
+ *   7..10   phone id, first 4 bytes of SHA-256(ANDROID_ID)
+ *   11..14  counter, little-endian, must be greater than the last one stored for that phone
+ *   15..22  first 8 bytes of HMAC-SHA1 over bytes 2..14
+ *
+ * The key is BLE_KEY_BYTES. Counters live in RAM until the next boot.
+ * Change the key before this prop leaves the bench.
+ */
+#define BLE_PHONE_SLOTS         4
+#define BLE_COMPANY_ID          0xFFFF
+#define BLE_MAGIC_0             0xC0
+#define BLE_MAGIC_1             0xFF
+#define BLE_MAGIC_2             0x1E
+#define BLE_MAGIC_3             0x57
+#define BLE_CMD_SCARE           0x01
+#define BLE_CMD_OPEN            0x02
+#define BLE_CMD_RESET           0x03
+#define BLE_TAG_LEN             8
+#define BLE_KEY_BYTES \
+    0x6B, 0xC1, 0x09, 0xE4, 0x52, 0x8A, 0x17, 0xD3, 0xF0, 0x3E, \
+    0x91, 0x44, 0xAB, 0x76, 0x2C, 0x58, 0x0F, 0xDE, 0x85, 0x19

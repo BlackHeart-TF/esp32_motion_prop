@@ -1,0 +1,6 @@
+# 8 MB bench chip. Same layout as partitions.csv, with storage cut off at 8 MB.
+# Name,     Type, SubType, Offset,   Size,     Flags
+nvs,        data, nvs,     0x9000,   0x6000,
+phy_init,   data, phy,     0xF000,   0x1000,
+factory,    app,  factory, 0x10000,  0x1F0000,
+storage,    data, fat,     0x200000, 0x600000,

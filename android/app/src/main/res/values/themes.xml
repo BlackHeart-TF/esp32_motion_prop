@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Coffin" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/open</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:windowBackground">@color/bg</item>
+    </style>
+
+    <style name="Widget.Coffin.Button" parent="Widget.Material3.Button">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginBottom">12dp</item>
+        <item name="android:textSize">22sp</item>
+        <item name="android:textColor">@color/bone</item>
+        <item name="cornerRadius">12dp</item>
+    </style>
+</resources>

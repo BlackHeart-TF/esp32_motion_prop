@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.78"
+        android:scaleY="0.78">
+
+        <!-- Outer coffin -->
+        <path
+            android:fillColor="#E7DCC8"
+            android:pathData="
+                M43,12
+                L65,12
+                L76,32
+                L76,47
+                L65,94
+                L43,94
+                L32,47
+                L32,32
+                Z" />
+
+        <!-- Recessed lid -->
+        <path
+            android:fillColor="#C4B69E"
+            android:pathData="
+                M46,19
+                L62,19
+                L70,34
+                L70,46
+                L61,87
+                L47,87
+                L38,46
+                L38,34
+                Z" />
+
+    </group>
+</vector>

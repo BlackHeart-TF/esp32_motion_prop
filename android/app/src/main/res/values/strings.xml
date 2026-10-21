@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Coffin</string>
+    <string name="hint">Sends one command, then stops. Each phone has its own count. ble clear on the UART forgets them.</string>
+    <string name="scare">Scare</string>
+    <string name="open">Open</string>
+    <string name="reset">Reset</string>
+    <string name="ready">Ready</string>
+    <string name="sending">Sending %1$s…</string>
+    <string name="sent">Sent %1$s</string>
+    <string name="wrapped">Sent %1$s. Count started over. Restart the coffin once.</string>
+    <string name="need_permission">Allow Bluetooth advertising</string>
+    <string name="bluetooth_off">Turn Bluetooth on</string>
+    <string name="no_bluetooth">No Bluetooth on this phone</string>
+    <string name="cannot_advertise">This phone cannot send advertisements</string>
+    <string name="advertise_failed">Advertise failed (%1$d)</string>
+    <string name="firmware">Firmware</string>
+    <string name="flash_title">Firmware</string>
+    <string name="flash_wait">Plug the coffin into this phone. Hold BOOT and press RESET if it does not show up.</string>
+    <string name="flash_ready">Coffin is connected.</string>
+    <string name="update_firmware">Update firmware</string>
+    <string name="flash_checking">Checking the latest release…</string>
+    <string name="flash_downloading_pct">Downloading %1$d%%…</string>
+    <string name="flash_downloading_kb">Downloading %1$d KB…</string>
+    <string name="flash_unpacking">Unpacking…</string>
+    <string name="flash_got">Downloaded %1$s. Firmware, %2$d scream clips, %3$d creak clips.</string>
+    <string name="flash_no_repo">Set the GitHub owner and repo in CoffinRelease.</string>
+    <string name="flash_no_release">No release on GitHub yet.</string>
+    <string name="flash_no_zip">The latest release has no coffin.zip.</string>
+    <string name="flash_no_bin">coffin.zip has no coffin.bin.</string>
+    <string name="flash_too_big">That release is too large.</string>
+    <string name="flash_failed">Download failed. %1$s</string>
+</resources>

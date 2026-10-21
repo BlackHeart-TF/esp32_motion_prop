@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="20dp"
+        android:text="@string/flash_title"
+        android:textColor="@color/bone"
+        android:textSize="32sp" />
+
+    <TextView
+        android:id="@+id/status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="20dp"
+        android:text="@string/flash_wait"
+        android:textColor="@color/bone"
+        android:textSize="16sp" />
+
+    <Button
+        android:id="@+id/update"
+        style="@style/Widget.Material3.Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:backgroundTint="@color/open"
+        android:text="@string/update_firmware"
+        android:textColor="@color/bg"
+        android:textSize="18sp"
+        android:visibility="gone" />
+</LinearLayout>

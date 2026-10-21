@@ -1,0 +1,4 @@
+[submodule "android/third_party/AndroidEspTools"]
+	path = android/third_party/AndroidEspTools
+	url = https://github.com/xerootg/AndroidEspTools.git
+	branch = main

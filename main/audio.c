@@ -2,28 +2,55 @@
 
 #include "config.h"
 
+#include <dirent.h>
+#include <stdio.h>
 #include <string.h>
+#include <strings.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 
 #include "driver/i2s_std.h"
 #include "esp_log.h"
-#include "esp_partition.h"
 #include "esp_random.h"
+#include "esp_vfs_fat.h"
+#include "wear_levelling.h"
 
 static const char *TAG = "audio";
 
 #define CHUNK_FRAMES 128
-#define SCREAM_MAGIC 0x4D524353u /* 'SCRM' little-endian */
+#define MAX_CLIPS    64
+#define STORAGE_PATH "/storage"
+#define SCREAM_DIR   STORAGE_PATH "/screams"
+#define CREAK_DIR    STORAGE_PATH "/creaks"
+
+#define AUDIO_CMD_CREAK  1
+#define AUDIO_CMD_SCREAM 2
 
 typedef struct {
-    uint32_t offset;
-    uint32_t nbytes;
-} scream_entry_t;
+    uint8_t kind;
+    uint32_t gen;
+} audio_cmd_t;
 
 static i2s_chan_handle_t s_tx;
 static int32_t s_buf[CHUNK_FRAMES * 2];
-static const uint8_t *s_map;
-static uint32_t s_count;
-static esp_partition_mmap_handle_t s_mmap;
+static wl_handle_t s_wl = WL_INVALID_HANDLE;
+static int s_mounted;
+static int s_scream_count;
+static char s_screams[MAX_CLIPS][64];
+static int s_creak_count;
+static char s_creaks[MAX_CLIPS][64];
+static QueueHandle_t s_cmds;
+static SemaphoreHandle_t s_ready;
+static SemaphoreHandle_t s_scream_done;
+static volatile uint32_t s_stop_gen;
+static volatile int s_fade;
+static volatile int s_playing;
+static int s_task_up;
+
+static void audio_task(void *arg);
 
 #if AUDIO_BOOT_TONE
 static void play_boot_tone(void);
@@ -57,36 +84,120 @@ static void write_silence(int milliseconds)
     }
 }
 
-static void load_screams(void)
+static int read_u32(FILE *file, uint32_t *out)
 {
-    const esp_partition_t *part = esp_partition_find_first(
-        ESP_PARTITION_TYPE_DATA, (esp_partition_subtype_t)0x40, "screams");
-    if (part == NULL) {
-        ESP_LOGE(TAG, "screams partition not found");
+    uint8_t raw[4];
+    if (fread(raw, 1, sizeof(raw), file) != sizeof(raw)) {
+        return 0;
+    }
+    *out = (uint32_t)raw[0] | ((uint32_t)raw[1] << 8) |
+           ((uint32_t)raw[2] << 16) | ((uint32_t)raw[3] << 24);
+    return 1;
+}
+
+static int wav_name(const char *name)
+{
+    size_t len = strlen(name);
+    return len >= 5 && strcasecmp(name + len - 4, ".wav") == 0;
+}
+
+static void list_wavs(const char *dir_path, char names[][64], int *count, const char *label)
+{
+    *count = 0;
+    DIR *dir = opendir(dir_path);
+    if (dir == NULL) {
+        ESP_LOGW(TAG, "no %s folder on the storage drive", dir_path);
         return;
     }
 
-    const void *mapped = NULL;
-    esp_err_t err = esp_partition_mmap(part, 0, part->size, ESP_PARTITION_MMAP_DATA,
-                                       &mapped, &s_mmap);
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (!wav_name(ent->d_name)) {
+            continue;
+        }
+        size_t len = strlen(ent->d_name);
+        if (len >= 64) {
+            ESP_LOGW(TAG, "skipping %s, name is too long", ent->d_name);
+            continue;
+        }
+        if (*count >= MAX_CLIPS) {
+            ESP_LOGW(TAG, "only the first %d %s are used", MAX_CLIPS, label);
+            break;
+        }
+        memcpy(names[*count], ent->d_name, len + 1);
+        (*count)++;
+    }
+    closedir(dir);
+    ESP_LOGI(TAG, "%d %s in %s", *count, label, dir_path);
+}
+
+static void mount_storage(void)
+{
+    esp_vfs_fat_mount_config_t cfg = VFS_FAT_MOUNT_DEFAULT_CONFIG();
+    cfg.max_files = 4;
+    esp_err_t err = esp_vfs_fat_spiflash_mount_rw_wl(STORAGE_PATH, "storage", &cfg, &s_wl);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "screams mmap failed (%s)", esp_err_to_name(err));
+        ESP_LOGW(TAG, "storage mount failed (%s). Format the drive and put wavs in screams/ and creaks/",
+                 esp_err_to_name(err));
         return;
     }
+    s_mounted = 1;
+    list_wavs(SCREAM_DIR, s_screams, &s_scream_count, "screams");
+    list_wavs(CREAK_DIR, s_creaks, &s_creak_count, "creaks");
+}
 
-    s_map = mapped;
-    uint32_t magic = 0;
-    uint32_t count = 0;
-    memcpy(&magic, s_map, sizeof(magic));
-    memcpy(&count, s_map + 4, sizeof(count));
-    if (magic != SCREAM_MAGIC || count == 0 || count > 32) {
-        ESP_LOGE(TAG, "screams image is missing or corrupt");
-        s_count = 0;
-        return;
+/* Leaves the file positioned at the PCM. Returns 0 when the clip is not playable. */
+static int open_wav(FILE *file, const char *name, uint32_t *data_bytes)
+{
+    char id[4];
+    uint32_t chunk = 0;
+    if (fread(id, 1, 4, file) != 4 || memcmp(id, "RIFF", 4) != 0) {
+        return 0;
+    }
+    if (!read_u32(file, &chunk)) {
+        return 0;
+    }
+    if (fread(id, 1, 4, file) != 4 || memcmp(id, "WAVE", 4) != 0) {
+        return 0;
     }
 
-    s_count = count;
-    ESP_LOGI(TAG, "%u screams ready", (unsigned)s_count);
+    int have_fmt = 0;
+    while (fread(id, 1, 4, file) == 4) {
+        if (!read_u32(file, &chunk)) {
+            return 0;
+        }
+        if (memcmp(id, "fmt ", 4) == 0) {
+            uint8_t fmt[16];
+            if (chunk < sizeof(fmt) || fread(fmt, 1, sizeof(fmt), file) != sizeof(fmt)) {
+                return 0;
+            }
+            uint16_t format = (uint16_t)fmt[0] | ((uint16_t)fmt[1] << 8);
+            uint16_t channels = (uint16_t)fmt[2] | ((uint16_t)fmt[3] << 8);
+            uint32_t rate = (uint32_t)fmt[4] | ((uint32_t)fmt[5] << 8) |
+                            ((uint32_t)fmt[6] << 16) | ((uint32_t)fmt[7] << 24);
+            uint16_t bits = (uint16_t)fmt[14] | ((uint16_t)fmt[15] << 8);
+            if (format != 1 || channels != 1 || rate != AUDIO_SAMPLE_RATE_HZ || bits != 16) {
+                ESP_LOGW(TAG, "%s must be %d Hz, 16-bit, mono PCM", name, AUDIO_SAMPLE_RATE_HZ);
+                return 0;
+            }
+            if (chunk > 16 && fseek(file, (long)(chunk - 16), SEEK_CUR) != 0) {
+                return 0;
+            }
+            if ((chunk & 1) && fseek(file, 1, SEEK_CUR) != 0) {
+                return 0;
+            }
+            have_fmt = 1;
+        } else if (memcmp(id, "data", 4) == 0) {
+            if (!have_fmt || chunk < sizeof(int16_t)) {
+                return 0;
+            }
+            *data_bytes = chunk & ~1u;
+            return 1;
+        } else if (fseek(file, (long)(chunk + (chunk & 1)), SEEK_CUR) != 0) {
+            return 0;
+        }
+    }
+    return 0;
 }
 
 void audio_init(void)
@@ -121,16 +232,29 @@ void audio_init(void)
     ESP_ERROR_CHECK(i2s_channel_init_std_mode(s_tx, &std_cfg));
     ESP_ERROR_CHECK(i2s_channel_enable(s_tx));
     write_silence(60);
-    load_screams();
+    mount_storage();
 
     i2s_chan_info_t info = {0};
     ESP_ERROR_CHECK(i2s_channel_get_info(s_tx, &info));
     ESP_LOGI(TAG, "PCM5102 I2S %d Hz, MCLK gpio %d (%u Hz), BCK %d, WS %d, DIN %d, BCLK %u Hz",
              AUDIO_SAMPLE_RATE_HZ, PIN_I2S_MCLK, (unsigned)info.mclk_hz,
              PIN_I2S_BCK, PIN_I2S_WS, PIN_I2S_DOUT, (unsigned)info.bclk_hz);
-#if AUDIO_BOOT_TONE
-    play_boot_tone();
-#endif
+
+    s_cmds = xQueueCreate(4, sizeof(audio_cmd_t));
+    s_ready = xSemaphoreCreateBinary();
+    s_scream_done = xSemaphoreCreateBinary();
+    if (s_cmds == NULL || s_ready == NULL || s_scream_done == NULL) {
+        ESP_LOGE(TAG, "audio queue create failed");
+        return;
+    }
+    if (xTaskCreatePinnedToCore(audio_task, "audio", 8192, NULL, 8, NULL, 1) != pdPASS) {
+        ESP_LOGE(TAG, "audio task create failed");
+        return;
+    }
+    s_task_up = 1;
+    if (xSemaphoreTake(s_ready, pdMS_TO_TICKS(3000)) != pdTRUE) {
+        ESP_LOGW(TAG, "audio task did not start");
+    }
 }
 
 #if AUDIO_BOOT_TONE
@@ -158,39 +282,211 @@ static void play_boot_tone(void)
 }
 #endif
 
-void audio_play_scream(void)
+static void cut_playback(void)
 {
-    if (s_count == 0 || s_map == NULL) {
-        ESP_LOGW(TAG, "no screams loaded");
+    esp_err_t err = i2s_channel_disable(s_tx);
+    if (err == ESP_OK) {
+        err = i2s_channel_enable(s_tx);
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "i2s restart failed (%s)", esp_err_to_name(err));
+    }
+}
+
+#define FADE_MS 400
+
+/* gen is the stop generation captured when this clip was requested.
+ * audio_stop() bumps s_stop_gen and cuts. audio_fade() ramps this clip out. */
+static void play_wav(FILE *file, const char *name, int loop, uint32_t gen)
+{
+    uint32_t data_bytes = 0;
+    if (!open_wav(file, name, &data_bytes)) {
+        ESP_LOGW(TAG, "%s is not a playable wav", name);
+        return;
+    }
+    long data_pos = ftell(file);
+    if (data_pos < 0) {
         return;
     }
 
-    uint32_t index = esp_random() % s_count;
-    scream_entry_t entry;
-    memcpy(&entry, s_map + 8 + index * sizeof(entry), sizeof(entry));
-    if (entry.nbytes < sizeof(int16_t)) {
-        ESP_LOGW(TAG, "scream %u is empty", (unsigned)(index + 1));
-        return;
-    }
+    uint32_t ms = (uint32_t)((uint64_t)(data_bytes / sizeof(int16_t)) * 1000 / AUDIO_SAMPLE_RATE_HZ);
+    ESP_LOGI(TAG, "playing %s (%u ms)", name, (unsigned)ms);
 
-    const int16_t *pcm = (const int16_t *)(s_map + entry.offset);
-    size_t frames = entry.nbytes / sizeof(int16_t);
-    uint32_t ms = (uint32_t)((uint64_t)frames * 1000 / AUDIO_SAMPLE_RATE_HZ);
-    ESP_LOGI(TAG, "playing scream %u (%u ms)", (unsigned)(index + 1), (unsigned)ms);
+    int fade_frames = (AUDIO_SAMPLE_RATE_HZ * FADE_MS) / 1000;
+    int gain_step = (32767 + fade_frames - 1) / fade_frames;
+    int gain = 32767;
+    int fading = 0;
 
-    size_t done = 0;
-    while (done < frames) {
-        size_t n = frames - done;
-        if (n > CHUNK_FRAMES) {
-            n = CHUNK_FRAMES;
+    s_fade = 0;
+    s_playing = 1;
+    uint32_t left = data_bytes;
+    while (gen == s_stop_gen) {
+        if (s_fade) {
+            fading = 1;
         }
-        for (size_t i = 0; i < n; i++) {
-            int32_t sample = ((int32_t)pcm[done + i]) << 16;
+        if (left < sizeof(int16_t)) {
+            if (!loop) {
+                break;
+            }
+            if (fseek(file, data_pos, SEEK_SET) != 0) {
+                break;
+            }
+            left = data_bytes;
+            continue;
+        }
+        size_t frames = left / sizeof(int16_t);
+        if (frames > CHUNK_FRAMES) {
+            frames = CHUNK_FRAMES;
+        }
+        int16_t pcm[CHUNK_FRAMES];
+        size_t got = fread(pcm, sizeof(int16_t), frames, file);
+        if (got == 0) {
+            break;
+        }
+        if (gen != s_stop_gen) {
+            break;
+        }
+        for (size_t i = 0; i < got; i++) {
+            int32_t sample = ((int32_t)pcm[i]) << 16;
+            if (fading) {
+                sample = (int32_t)(((int64_t)sample * gain) >> 15);
+                gain -= gain_step;
+                if (gain < 0) {
+                    gain = 0;
+                }
+            }
             s_buf[i * 2] = sample;
             s_buf[i * 2 + 1] = sample;
         }
-        write_frames(n);
-        done += n;
+        write_frames(got);
+        left -= (uint32_t)(got * sizeof(int16_t));
+        if (fading && gain == 0) {
+            break;
+        }
     }
-    write_silence(80);
+
+    s_playing = 0;
+    s_fade = 0;
+    if (gen != s_stop_gen) {
+        cut_playback();
+    } else {
+        write_silence(80);
+    }
+}
+
+static void play_creak(uint32_t gen)
+{
+    if (!s_mounted || s_creak_count == 0) {
+        ESP_LOGW(TAG, "no creaks on the storage drive");
+        return;
+    }
+
+    const char *name = s_creaks[esp_random() % (uint32_t)s_creak_count];
+    char path[96];
+    snprintf(path, sizeof(path), CREAK_DIR "/%s", name);
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        ESP_LOGW(TAG, "could not open %s", name);
+        return;
+    }
+    ESP_LOGI(TAG, "creak %s", name);
+    play_wav(file, name, 0, gen);
+    fclose(file);
+}
+
+static void play_scream(uint32_t gen)
+{
+    if (!s_mounted || s_scream_count == 0) {
+        ESP_LOGW(TAG, "no screams on the storage drive");
+        return;
+    }
+
+    const char *name = s_screams[esp_random() % (uint32_t)s_scream_count];
+    char path[96];
+    snprintf(path, sizeof(path), SCREAM_DIR "/%s", name);
+    FILE *file = fopen(path, "rb");
+    if (file == NULL) {
+        ESP_LOGW(TAG, "could not open %s", name);
+        return;
+    }
+    play_wav(file, name, 0, gen);
+    fclose(file);
+}
+
+static void audio_task(void *arg)
+{
+    (void)arg;
+#if AUDIO_BOOT_TONE
+    play_boot_tone();
+#endif
+    xSemaphoreGive(s_ready);
+
+    audio_cmd_t cmd;
+    while (xQueueReceive(s_cmds, &cmd, portMAX_DELAY) == pdTRUE) {
+        int stale = cmd.gen != s_stop_gen;
+        if (!stale && cmd.kind == AUDIO_CMD_CREAK) {
+            play_creak(cmd.gen);
+        } else if (!stale && cmd.kind == AUDIO_CMD_SCREAM) {
+            play_scream(cmd.gen);
+        }
+        if (cmd.kind == AUDIO_CMD_SCREAM) {
+            xSemaphoreGive(s_scream_done);
+        }
+    }
+}
+
+static void send_cmd(uint8_t kind, uint32_t gen)
+{
+    audio_cmd_t cmd = {
+        .kind = kind,
+        .gen = gen,
+    };
+    if (xQueueSend(s_cmds, &cmd, pdMS_TO_TICKS(200)) != pdTRUE) {
+        ESP_LOGW(TAG, "audio queue full");
+    }
+}
+
+void audio_play_creak(void)
+{
+    if (!s_task_up) {
+        return;
+    }
+    send_cmd(AUDIO_CMD_CREAK, s_stop_gen);
+}
+
+void audio_fade(void)
+{
+    if (!s_task_up || !s_playing) {
+        return;
+    }
+    s_fade = 1;
+    int waited = 0;
+    while (s_playing && waited < FADE_MS + 300) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+        waited += 20;
+    }
+    s_fade = 0;
+}
+
+void audio_stop(void)
+{
+    s_stop_gen++;
+}
+
+void audio_play_scream(void)
+{
+    if (!s_task_up) {
+        return;
+    }
+    s_stop_gen++;
+    xSemaphoreTake(s_scream_done, 0);
+    audio_cmd_t cmd = {
+        .kind = AUDIO_CMD_SCREAM,
+        .gen = s_stop_gen,
+    };
+    if (xQueueSend(s_cmds, &cmd, pdMS_TO_TICKS(200)) != pdTRUE) {
+        ESP_LOGW(TAG, "audio queue full, scream dropped");
+        return;
+    }
+    xSemaphoreTake(s_scream_done, portMAX_DELAY);
 }

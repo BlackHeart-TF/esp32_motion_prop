@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#14110E</color>
+    <color name="bone">#E7DCC8</color>
+    <color name="muted">#9A8B78</color>
+    <color name="scare">#8E1B1B</color>
+    <color name="open">#C4892A</color>
+    <color name="reset">#1F6B45</color>
+</resources>
