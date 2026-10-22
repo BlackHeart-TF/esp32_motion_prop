@@ -125,7 +125,7 @@ idf.py set-target esp32s3
 idf.py build flash monitor
 ```
 
-`tools/prepare_image.sh` merges that build into one file, `build/coffin.bin`, for flashing on another machine. It prints the esptool command. The flash size in the file is whatever this build was set to.
+`tools/prepare_image.sh` merges that build into one file, `build/coffin.bin`. The bootloader, partition table, and app are already placed inside it. `tools/flash_board.sh build/coffin.bin` flashes that file. A port can follow the file if more than one board is plugged in. The flash size in the file is whatever this build was set to.
 
 The PIR is ignored for 20 seconds after boot. An HC-SR312 settles in a few seconds, so `PIR_WARMUP_MS` can be lowered. Set `SCARE_ONCE_ON_BOOT` to `1` to fire one scare at the end of that wait without waving at the sensor.
 

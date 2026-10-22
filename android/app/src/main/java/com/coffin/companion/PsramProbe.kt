@@ -12,7 +12,14 @@ data class BoardInfo(val model: String, val psram: String?)
 
 /** Read the chip id and, on an ESP32-S3, the package PSRAM size. Resets the chip into the ROM. */
 object PsramProbe {
-    fun read(context: Context, device: UsbDevice): BoardInfo {
+    fun read(context: Context, device: UsbDevice): BoardInfo = withRom(context, device) { link ->
+        val id = chipId(link)
+        val psram = if (id == ESP32_S3) psramLabel(psramCap(link)) else null
+        BoardInfo(modelName(id), psram)
+    }
+
+    /** Opens the port, resets into the ROM, syncs, then runs [block] once. */
+    internal fun <T> withRom(context: Context, device: UsbDevice, block: (CoffinSerial) -> T): T {
         val usb = context.getSystemService(UsbManager::class.java)
             ?: throw IOException("No USB host")
         val driver = UsbSerialProber.getDefaultProber().probeDevice(device)
@@ -28,21 +35,24 @@ object PsramProbe {
         }
         serial.use { link ->
             var last: Exception? = null
-            repeat(4) {
+            var synced = false
+            for (attempt in 0 until 4) {
                 try {
                     link.usbJtagReset()
                     Thread.sleep(150)
                     link.purgeInput()
                     sync(link)
-                    val id = chipId(link)
-                    val psram = if (id == ESP32_S3) psramLabel(psramCap(link)) else null
-                    return BoardInfo(modelName(id), psram)
+                    synced = true
+                    break
                 } catch (e: Exception) {
                     last = e
                     link.purgeInput()
                 }
             }
-            throw last ?: IOException("No answer from the ROM")
+            if (!synced) {
+                throw last ?: IOException("No answer from the ROM")
+            }
+            return block(link)
         }
     }
 
@@ -111,27 +121,38 @@ object PsramProbe {
         repeat(7) { command(link, null, ByteArray(0), 200) }
     }
 
-    private fun command(link: CoffinSerial, op: Int?, data: ByteArray, timeoutMs: Int): Response {
+    internal fun command(
+        link: CoffinSerial,
+        op: Int?,
+        data: ByteArray,
+        timeoutMs: Int,
+        checksum: Int = 0,
+    ): Response {
         if (op != null) {
             val packet = ByteArray(8 + data.size)
             packet[1] = op.toByte()
             packet[2] = (data.size and 0xFF).toByte()
             packet[3] = ((data.size shr 8) and 0xFF).toByte()
+            for (i in 0 until 4) {
+                packet[4 + i] = (checksum shr (8 * i)).toByte()
+            }
             System.arraycopy(data, 0, packet, 8, data.size)
             link.write(slipEncode(packet))
         }
-        val frame = link.readSlip(timeoutMs)
-        if (frame.size < 8 || frame[0].toInt() != 1) {
-            throw IOException("ROM did not answer")
+        while (true) {
+            val frame = link.readSlip(timeoutMs)
+            if (frame.size < 8 || frame[0].toInt() != 1) {
+                throw IOException("ROM did not answer")
+            }
+            if (op != null && frame[1].toInt() != op) {
+                continue
+            }
+            var value = 0L
+            for (i in 0 until 4) {
+                value = value or ((frame[4 + i].toLong() and 0xFF) shl (8 * i))
+            }
+            return Response(value, frame.copyOfRange(8, frame.size))
         }
-        if (op != null && frame[1].toInt() != op) {
-            throw IOException("ROM answered a different command")
-        }
-        var value = 0L
-        for (i in 0 until 4) {
-            value = value or ((frame[4 + i].toLong() and 0xFF) shl (8 * i))
-        }
-        return Response(value, frame.copyOfRange(8, frame.size))
     }
 
     private fun slipEncode(payload: ByteArray): ByteArray {
@@ -154,7 +175,7 @@ object PsramProbe {
         return out.toByteArray()
     }
 
-    private class Response(val value: Long, val data: ByteArray)
+    internal class Response(val value: Long, val data: ByteArray)
 
     private const val ESP_SYNC = 0x08
     private const val ESP_READ_REG = 0x0A
@@ -163,7 +184,7 @@ object PsramProbe {
     private const val EFUSE_BLOCK1 = 0x60007044L
 }
 
-private class CoffinSerial(
+internal class CoffinSerial(
     private val port: UsbSerialPort,
     private val connection: android.hardware.usb.UsbDeviceConnection,
 ) : AutoCloseable {
@@ -235,6 +256,15 @@ private class CoffinSerial(
         Thread.sleep(100)
         setDtr(false)
         setRts(false)
+    }
+
+    /** Reset into the flashed app. */
+    fun hardReset() {
+        setDtr(false)
+        setRts(true)
+        Thread.sleep(200)
+        setRts(false)
+        Thread.sleep(200)
     }
 
     fun readSlip(timeoutMs: Int): ByteArray {

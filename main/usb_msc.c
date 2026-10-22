@@ -124,11 +124,11 @@ bool usb_msc_claimed_at_boot(void)
         .mount_point = TINYUSB_MSC_STORAGE_MOUNT_USB,
         .fat_fs = {
             .base_path = NULL,
-            .do_not_format = true,
+            .do_not_format = false,
             .format_flags = 0,
             .config = {
                 .max_files = 4,
-                .format_if_mount_failed = false,
+                .format_if_mount_failed = true,
             },
         },
     };

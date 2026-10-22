@@ -135,10 +135,10 @@ static void mount_storage(void)
 {
     esp_vfs_fat_mount_config_t cfg = VFS_FAT_MOUNT_DEFAULT_CONFIG();
     cfg.max_files = 4;
+    cfg.format_if_mount_failed = true;
     esp_err_t err = esp_vfs_fat_spiflash_mount_rw_wl(STORAGE_PATH, "storage", &cfg, &s_wl);
     if (err != ESP_OK) {
-        ESP_LOGW(TAG, "storage mount failed (%s). Format the drive and put wavs in screams/ and creaks/",
-                 esp_err_to_name(err));
+        ESP_LOGW(TAG, "storage mount failed (%s)", esp_err_to_name(err));
         return;
     }
     s_mounted = 1;

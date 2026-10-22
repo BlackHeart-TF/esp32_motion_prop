@@ -33,4 +33,26 @@
         android:textColor="@color/bg"
         android:textSize="18sp"
         android:visibility="gone" />
+
+    <Button
+        android:id="@+id/pack"
+        style="@style/Widget.Material3.Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:backgroundTint="@color/open"
+        android:text="@string/download_pack"
+        android:textColor="@color/bg"
+        android:textSize="18sp"
+        android:visibility="gone" />
+
+    <Button
+        android:id="@+id/browse"
+        style="@style/Widget.Material3.Button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:backgroundTint="@color/open"
+        android:text="@string/open_drive"
+        android:textColor="@color/bg"
+        android:textSize="18sp"
+        android:visibility="gone" />
 </LinearLayout>

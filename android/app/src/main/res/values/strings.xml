@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Coffin</string>
+    <string name="app_name">Motion Prop</string>
     <string name="hint">Sends one command, then stops. Each phone has its own count. ble clear on the UART forgets them.</string>
     <string name="scare">Scare</string>
     <string name="open">Open</string>
@@ -8,7 +8,7 @@
     <string name="ready">Ready</string>
     <string name="sending">Sending %1$s…</string>
     <string name="sent">Sent %1$s</string>
-    <string name="wrapped">Sent %1$s. Count started over. Restart the coffin once.</string>
+    <string name="wrapped">Sent %1$s. Count started over. Restart the prop once.</string>
     <string name="need_permission">Allow Bluetooth advertising</string>
     <string name="bluetooth_off">Turn Bluetooth on</string>
     <string name="no_bluetooth">No Bluetooth on this phone</string>
@@ -16,8 +16,8 @@
     <string name="advertise_failed">Advertise failed (%1$d)</string>
     <string name="firmware">Firmware</string>
     <string name="flash_title">Firmware</string>
-    <string name="flash_wait">Plug the coffin into this phone. Hold BOOT and press RESET if it does not show up.</string>
-    <string name="flash_ready">Coffin is connected.</string>
+    <string name="flash_wait">Plug the prop into this phone. Hold BOOT and press RESET if it does not show up.</string>
+    <string name="flash_ready">Prop is connected.</string>
     <string name="flash_usb_permission">Allow USB access to read this board.</string>
     <string name="flash_usb_denied">USB access was denied.</string>
     <string name="flash_reading_psram">Reading the chip…</string>
@@ -28,12 +28,24 @@
     <string name="flash_checking">Checking the latest release…</string>
     <string name="flash_downloading_pct">Downloading %1$d%%…</string>
     <string name="flash_downloading_kb">Downloading %1$d KB…</string>
-    <string name="flash_unpacking">Unpacking…</string>
-    <string name="flash_got">Downloaded %1$s. Firmware, %2$d scream clips, %3$d creak clips.</string>
+    <string name="flash_writing">Writing firmware %1$d%%… Leave the cable in.</string>
+    <string name="flash_done">Flashed %1$s. Restarting the prop…</string>
+    <string name="flash_drive_found">Prop drive connected.</string>
+    <string name="download_pack">Download preset pack</string>
+    <string name="open_drive">Open in file manager</string>
+    <string name="drive_not_mounted">The phone has not opened the prop drive yet. Check the notification shade for a USB drive.</string>
+    <string name="no_file_manager">No file manager on this phone can open the drive.</string>
+    <string name="pack_pick_drive">Pick the prop drive, then tap Use this folder.</string>
+    <string name="pack_pick_notice">The next screen asks which folder this app may copy into. It opens on the prop drive. Tap Use this folder, then Allow.</string>
+    <string name="pack_pick_continue">Continue</string>
+    <string name="pack_cancelled">No drive picked. Tap Download preset pack to try again.</string>
+    <string name="pack_copying">Copying %1$s…</string>
+    <string name="pack_copied">Copied %1$d files to the prop drive. %2$d were already there.</string>
+    <string name="pack_copy_failed">Copy failed. %1$s</string>
+    <string name="flash_write_failed">Flashing failed. %1$s Unplug, hold BOOT, press RESET, and try again.</string>
     <string name="flash_no_repo">Set the GitHub owner and repo in CoffinRelease.</string>
     <string name="flash_no_release">No release on GitHub yet.</string>
-    <string name="flash_no_zip">The latest release has no coffin.zip.</string>
-    <string name="flash_no_bin">coffin.zip has no coffin.bin.</string>
+    <string name="flash_no_bin">The latest release has no %1$s.</string>
     <string name="flash_too_big">That release is too large.</string>
     <string name="flash_failed">Download failed. %1$s</string>
 </resources>

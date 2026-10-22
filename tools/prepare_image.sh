@@ -58,14 +58,12 @@ if [[ "$help" == *"--flash-mode"* ]]; then
     "${py[@]}" -m esptool --chip "$chip" merge-bin -o "$out" \
         --flash-mode "$mode" --flash-freq "$freq" --flash-size "$size" \
         "${pairs[@]}"
-    flash_flags=(--flash-mode "$mode" --flash-freq "$freq" --flash-size "$size")
 else
     "${py[@]}" -m esptool --chip "$chip" merge_bin -o "$out" \
         --flash_mode "$mode" --flash_freq "$freq" --flash_size "$size" \
         "${pairs[@]}"
-    flash_flags=(--flash_mode "$mode" --flash_freq "$freq" --flash_size "$size")
 fi
 
 echo "wrote $out"
-echo "on the other machine:"
-echo "  python -m esptool --chip $chip -p PORT write_flash ${flash_flags[*]} 0x0 $(basename "$out")"
+echo "flash it with:"
+echo "  tools/flash_board.sh $out"
